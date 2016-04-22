@@ -16,14 +16,22 @@
 package kafka.metrics
 
 import java.util.concurrent.TimeUnit
+import java.util.regex.Pattern
 
 import com.yammer.metrics.Metrics
-import com.yammer.metrics.core.{Clock, Metric, MetricName, MetricPredicate}
-import com.yammer.metrics.reporting.GraphiteReporter
+import com.yammer.metrics.core._
+import com.yammer.metrics.reporting.{SocketProvider, GraphiteReporter}
 import com.yammer.metrics.reporting.GraphiteReporter.DefaultSocketProvider
 import kafka.utils.{VerifiableProperties, Logging}
 
 trait KafkaGraphiteMetricsReporterMBean extends KafkaMetricsReporterMBean
+
+object PartitionPattern {
+
+  var expression = "^(.*)partition\\.(\\d+)\\.topic\\.([a-zA-Z0-9_]+)$";
+  var pattern = Pattern.compile(expression)
+
+}
 
 class KafkaGraphiteMetricsReporter extends KafkaMetricsReporter
                                     with KafkaGraphiteMetricsReporterMBean
@@ -58,15 +66,36 @@ class KafkaGraphiteMetricsReporter extends KafkaMetricsReporter
           private def groupMetricName(name: MetricName): String = {
             val result = new StringBuilder().append(name.getGroup).append('.').append(name.getType).append('.')
             if (name.hasScope) {
-              result.append(name.getScope).append('.')
+              val scope = name.getScope.replaceAll("clientId\\.", "")
+
+              if (scope.matches(PartitionPattern.expression)) {
+                result.append(name.getName + ".")
+
+                val patternMatcher = PartitionPattern.pattern.matcher(scope)
+                patternMatcher.find()
+
+                val topic: String = patternMatcher.group(3)
+                val partition: String = patternMatcher.group(2)
+                val prefix: String = patternMatcher.group(1)
+
+                if (prefix != null && !prefix.equals("")) {
+                  result.append(prefix + ".")
+                }
+                result.append(topic + "." + partition)
+              } else {
+                result.append(scope)
+              }
+            } else {
+              result.append(name.getName)
             }
-            result.append(name.getName).toString().replace(' ', '_')
+
+            result.toString().replace(' ', '_')
           }
         }
 
         info("Configuring Kafka Graphite Reporter with host=%s, port=%d, prefix=%s and include=%s, exclude=%s, jvm=%s".format(
           metricsConfig.host, metricsConfig.port, metricsConfig.prefix, metricsConfig.include, metricsConfig.exclude, metricsConfig.jvm))
-        underlying = new GraphiteReporter(Metrics.defaultRegistry, metricsConfig.prefix, metricPredicate,
+        underlying = new RTBGraphiteReporter(Metrics.defaultRegistry, metricsConfig.prefix, metricPredicate,
                                           socketProvider, Clock.defaultClock)
         // Controls JVM metrics output
         underlying.printVMMetrics = metricsConfig.jvm
@@ -97,5 +126,38 @@ class KafkaGraphiteMetricsReporter extends KafkaMetricsReporter
         underlying = null
       }
     }
+  }
+}
+
+
+class RTBGraphiteReporter(metricsRegistry: MetricsRegistry, prefix: String, predicate: MetricPredicate,
+                          socketProvider: SocketProvider, clock: Clock) extends GraphiteReporter(metricsRegistry, prefix, predicate, socketProvider, clock) {
+
+
+  override def sanitizeName(name: MetricName): String = {
+    val result = new StringBuilder().append(name.getGroup).append('.').append(name.getType).append('.')
+    if (name.hasScope) {
+      result.append(name.getName + ".")
+      val scope = name.getScope.replaceAll("clientId\\.", "")
+      if (scope.matches(PartitionPattern.expression)) {
+
+        val patternMatcher = PartitionPattern.pattern.matcher(scope)
+        patternMatcher.find()
+
+        val topic: String = patternMatcher.group(3)
+        val partition: String = patternMatcher.group(2)
+        val prefix: String = patternMatcher.group(1)
+
+        if (prefix != null && !prefix.equals("")) {
+          result.append(prefix + ".")
+        }
+        result.append(topic + "." + partition)
+      } else {
+        result.append(scope)
+      }
+    } else {
+      result.append(name.getName)
+    }
+    result.toString().replace(' ', '_')
   }
 }

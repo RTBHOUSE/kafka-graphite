@@ -1,7 +1,12 @@
+apply plugin: 'idea'
+
 buildscript {
     repositories {
         mavenCentral()
         jcenter()
+        maven {
+          url "http://nexus.adpilot-rtb.net:8081/content/repositories/releases/"
+    	}
     }
 
     dependencies {
@@ -9,11 +14,12 @@ buildscript {
         classpath 'nl.javadude.gradle.plugins:license-gradle-plugin:0.9.0'
         classpath 'com.netflix.nebula:gradle-ospackage-plugin:2.2.6'
     }
+
 }
 
 subprojects {
     group 'com.pakulov.kafka'
-    version '0.3.0'
+    version '0.3.0-RTBHOUSE'
 
     ext {
         kafkaVersion = "0.9.0.0"
@@ -23,6 +29,7 @@ subprojects {
         mavenCentral()
     }
 
+    
     apply plugin: 'license'
     apply plugin: 'maven'
     apply plugin: 'nexus'
@@ -39,6 +46,20 @@ subprojects {
                 connection 'scm:git:git@github.com:apakulov/kafka-graphite.git'
                 developerConnection 'scm:git:ssh@github.com:apakulov/kafka-graphite.git'
             }
+	uploadArchives {
+    	repositories {
+    		mavenDeployer {
+			//beforeDeployment { MavenDeployment deployment -> signing.signPom(deployment) }
+             		repository(url: "http://nexus.adpilot-rtb.net:8081/content/repositories/releases/") {
+             		authentication(userName: nexusUsername, password: nexusPassword)
+			}
+         	pom.version = "0.3.0"
+         	pom.artifactId = "kafka-graphite"
+         	pom.groupId = "com.pakulov.kafka"
+       		}
+    	}
+    	}
+
 
             licenses {
                 license {
@@ -54,11 +75,16 @@ subprojects {
                     name 'Alexander Pakulov'
                     email 'a.pakulov@gmail.com'
                 }
+                developer {
+                    id 'pjaczewski'
+                    name 'Piotr Jaczewski'
+                    email 'pjczewski@rtbhouse.com'
+                }
             }
         }
     }
 
-    license {
+   license {
         header rootProject.file('LICENSE')
     }
 }
